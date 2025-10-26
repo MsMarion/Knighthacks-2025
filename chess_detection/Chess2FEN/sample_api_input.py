@@ -6,7 +6,7 @@ def call_predict_api():
     A sample script to call the /predict endpoint of the Chess2FEN API.
     """
     # The URL of your running API server
-    url = "http://127.0.0.1:8000/predict"
+    url = "http://127.0.0.1:8000/send_command"
 
     # The path to the image you want to send.
     # Make sure the api_server.py is running from the Chess2FEN directory,
