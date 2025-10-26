@@ -1,0 +1,5 @@
+channels:
+  - conda-forge
+  - defaults
+
+create_default_packages: [ultralytics]

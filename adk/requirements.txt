@@ -1,0 +1,11 @@
+# Core dependencies
+google-adk
+requests
+lerobot
+websockets
+google-genai
+
+# Optional dependencies for kinematics (requires placo which has complex C++ dependencies)
+# If you need kinematics features, you may need to install placo separately:
+# pip install placo
+# Note: placo installation may fail on Windows due to C++ build requirements

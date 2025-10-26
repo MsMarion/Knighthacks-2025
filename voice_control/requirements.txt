@@ -1,0 +1,26 @@
+# Core
+transformers>=4.44.0
+accelerate>=0.33.0
+torch
+
+# ASR (offline)
+vosk>=0.3.45
+sounddevice>=0.4.6
+faster-whisper>=1.0.3
+
+# TTS (offline)
+edge-tts
+pyttsx3>=2.90
+
+# Vision
+opencv-python>=4.10.0.84
+numpy>=1.26.0
+
+# Robot deps (already in project but ensure available when running standalone)
+pyserial>=3.5
+
+# Utilities
+pydantic>=2.8.0
+python-dotenv>=1.0.1
+
+google-genai

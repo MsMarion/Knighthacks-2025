@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #__next { height: 100%; }
+
+/* Dark mode (default) */
+:root { 
+  color-scheme: dark; 
+}
+
+/* Light mode */
+.light {
+  color-scheme: light;
+}
+
+.light body {
+  background-color: #ffffff;
+  color: #1f2937;
+}
+
+.light .bg-zinc-950 {
+  background-color: #f9fafb;
+}
+
+.light .bg-zinc-900 {
+  background-color: #f3f4f6;
+}
+
+.light .text-zinc-100 {
+  color: #1f2937;
+}
+
+.light .text-zinc-300 {
+  color: #4b5563;
+}
+
+.light .text-zinc-400 {
+  color: #6b7280;
+}
+
+.light .border-white\/10 {
+  border-color: #e5e7eb;
+}
+
+.light .ring-white\/10 {
+  --tw-ring-color: #e5e7eb;
+}
