@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chess2FEN Stream Test</title>
+    <style>
+        body { font-family: sans-serif; line-height: 1.6; padding: 2em; display: flex; gap: 2em; }
+        #controls { flex: 1; }
+        #output { flex: 2; }
+        pre { background-color: #f4f4f4; padding: 1em; border-radius: 5px; white-space: pre-wrap; word-wrap: break-word; }
+        img { max-width: 400px; margin-bottom: 1em; border: 1px solid #ccc; }
+    </style>
+</head>
+<body>
+
+    <div id="controls">
+        <h1>Test <code>/predict-stream</code> Endpoint</h1>
+        <form id="uploadForm">
+            <div>
+                <label for="imageFile">Chessboard Image:</label><br>
+                <input type="file" id="imageFile" name="image" required>
+            </div>
+            <br>
+            <div>
+                <label for="a1_pos">a1 Position (e.g., BL, BR, TL, TR):</label><br>
+                <input type="text" id="a1_pos" name="a1_pos" value="BL" required>
+            </div>
+            <br>
+            <button type="submit">Start Prediction Stream</button>
+        </form>
+
+        <h2>Server Updates:</h2>
+        <pre id="updates"></pre>
+    </div>
+
+    <div id="output">
+        <h2>Debug Images:</h2>
+        <div id="images"></div>
+    </div>
+
+    <script>
+        const form = document.getElementById('uploadForm');
+        const updatesDiv = document.getElementById('updates');
+        const imagesDiv = document.getElementById('images');
+
+        form.addEventListener('submit', (event) => {
+            event.preventDefault();
+            updatesDiv.textContent = 'Connecting to stream...';
+            imagesDiv.innerHTML = ''; // Clear previous images
+
+            const formData = new FormData(form);
+
+            fetch('http://127.0.0.1:8100/predict-stream', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                updatesDiv.textContent = ''; // Clear status message
+                
+                let buffer = '';
+
+                function processMessage(message) {
+                    if (!message.startsWith('data:')) return;
+
+                    const dataContent = message.substring(5).trim();
+                    const [type, ...payload] = dataContent.split(':');
+                    const content = payload.join(':');
+
+                    if (type === 'image') {
+                        const parts = content.split(':data:image/jpeg;base64,');
+                        if (parts.length < 2) return;
+                        const title = parts[0];
+                        const dataUri = parts[1];
+
+                        const h3 = document.createElement('h3');
+                        h3.textContent = title;
+
+                        const img = document.createElement('img');
+                        img.src = 'data:image/jpeg;base64,' + dataUri;
+                        img.alt = title;
+
+                        imagesDiv.appendChild(h3);
+                        imagesDiv.appendChild(img);
+
+                    } else if (type === 'text') {
+                        if (content === 'FINISHED') {
+                            updatesDiv.textContent += '\n--- End of Stream ---';
+                        } else {
+                            updatesDiv.textContent += content + '\n';
+                        }
+                    }
+                }
+
+                function read() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            if (buffer) processMessage(buffer); // Process any remaining data
+                            updatesDiv.textContent += '\nStream finished.';
+                            return;
+                        }
+                        
+                        buffer += decoder.decode(value, { stream: true });
+                        
+                        let boundary;
+                        while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+                            const message = buffer.substring(0, boundary);
+                            buffer = buffer.substring(boundary + 2);
+                            if (message) processMessage(message);
+                        }
+                        
+                        read();
+                    });
+                }
+                read();
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                updatesDiv.textContent = 'Error connecting to the server: ' + error;
+            });
+        });
+    </script>
+
+</body>
+</html>

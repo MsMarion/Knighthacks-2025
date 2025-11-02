@@ -9,3 +9,9 @@ export type AgentEvent = {
   summary?: string; 
   status?: "running"|"waiting"|"error"|"done";
 };
+
+export interface PipelineEvent {
+  type: 'text' | 'image';
+  content: string;
+  title?: string;
+}

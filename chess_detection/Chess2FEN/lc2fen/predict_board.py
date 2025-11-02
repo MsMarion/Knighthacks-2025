@@ -1,4 +1,4 @@
-"""This module is responsible for predicting board configurations."""
+"This module is responsible for predicting board configurations."
 
 
 import glob
@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import time
+import asyncio
 
 import cv2
 import numpy as np
@@ -682,6 +683,125 @@ def time_predict_board(
     return fen
 
 
+def debug_enabled_predictions(
+    image_path: str,
+    a1_pos: str,
+    model_path: str,
+    img_size: int,
+    pre_input,
+    previous_fen: (str | None) = None,
+    engine: str = "onnx",
+):
+    """
+    Predicts the FEN string for a single image, showing debug information
+    like elapsed time for each step. This is a standalone function for
+    convenience.
+
+    :param image_path: Path to the chessboard image.
+    :param a1_pos: Position of the a1 square ("BL", "BR", "TL", or "TR").
+    :param model_path: Path to the model file (.h5 for Keras, .onnx for ONNX, .trt for TensorRT).
+    :param img_size: Input image size for the model.
+    :param pre_input: Pre-processing function for the model's input.
+    :param previous_fen: FEN string of the previous board position.
+    :param engine: The inference engine to use ('keras', 'onnx', or 'trt').
+    :return: The predicted FEN string.
+    """
+    print(f"--- Running Debug Prediction for {image_path} using {engine} engine ---")
+
+    if engine == "trt":
+        if cuda is None or trt is None:
+            raise ImportError("Unable to import pycuda or tensorrt for TRT engine.")
+
+        class __HostDeviceTuple:
+            def __init__(self, _host, _device):
+                self.host = _host
+                self.device = _device
+
+        def __allocate_buffers(engine_trt):
+            inputs, outputs, bindings = [], [], []
+            stream = cuda.Stream()
+            for binding in engine_trt:
+                size = trt.volume(engine_trt.get_binding_shape(binding))
+                dtype = trt.nptype(engine_trt.get_binding_dtype(binding))
+                host_mem = cuda.pagelocked_empty(size, dtype)
+                device_mem = cuda.mem_alloc(host_mem.nbytes)
+                bindings.append(int(device_mem))
+                if engine_trt.binding_is_input(binding):
+                    inputs.append(__HostDeviceTuple(host_mem, device_mem))
+                else:
+                    outputs.append(__HostDeviceTuple(host_mem, device_mem))
+            return inputs, outputs, bindings, stream
+
+        def __infer(context, bindings, inputs, outputs, stream):
+            for inp in inputs:
+                cuda.memcpy_htod_async(inp.device, inp.host, stream)
+            context.execute_async_v2(bindings=bindings, stream_handle=stream.handle)
+            for out in outputs:
+                cuda.memcpy_dtoh_async(out.host, out.device, stream)
+            stream.synchronize()
+            return [out.host for out in outputs]
+
+        trt_logger = trt.Logger(trt.Logger.VERBOSE)
+        with open(model_path, "rb") as f, trt.Runtime(trt_logger) as runtime:
+            engine_trt = runtime.deserialize_cuda_engine(f.read())
+        
+        inputs, outputs, bindings, stream = __allocate_buffers(engine_trt)
+        img_array = np.zeros((64, trt.volume((img_size, img_size, 3))))
+        
+        with engine_trt.create_execution_context() as context:
+            def obtain_probs_trt(pieces: list[str]) -> list[list[float]]:
+                for i, piece in enumerate(pieces):
+                    img_array[i] = load_image(piece, img_size, pre_input).ravel()
+                np.copyto(inputs[0].host, img_array.ravel())
+                trt_outputs = __infer(context, bindings, inputs, outputs, stream)[-1]
+                return [trt_outputs[ind : ind + 13] for ind in range(0, 13 * 64, 13)]
+            
+            fen = time_predict_board(
+                image_path,
+                a1_pos,
+                obtain_probs_trt,
+                previous_fen=previous_fen,
+            )
+            print(f"Predicted FEN: {fen}")
+            print(f"--- Debug Prediction Finished ---")
+            return fen
+
+    obtain_piece_probs_for_all_64_squares = None
+    if engine == "keras":
+        model = load_model(model_path)
+        def obtain_probs_keras(pieces: list[str]) -> list[list[float]]:
+            predictions = []
+            for piece in pieces:
+                piece_img = load_image(piece, img_size, pre_input)
+                predictions.append(model.predict(piece_img)[0])
+            return predictions
+        obtain_piece_probs_for_all_64_squares = obtain_probs_keras
+    elif engine == "onnx":
+        sess = onnxruntime.InferenceSession(model_path)
+        def obtain_probs_onnx(pieces: list[str]) -> list[list[float]]:
+            predictions = []
+            for piece in pieces:
+                piece_img = load_image(piece, img_size, pre_input)
+                predictions.append(
+                    sess.run(None, {sess.get_inputs()[0].name: piece_img})[0][0]
+                )
+            return predictions
+        obtain_piece_probs_for_all_64_squares = obtain_probs_onnx
+    else:
+        raise ValueError(f"Invalid engine specified: {engine}. Choose from 'keras', 'onnx', or 'trt'.")
+
+    fen = time_predict_board(
+        image_path,
+        a1_pos,
+        obtain_piece_probs_for_all_64_squares,
+        previous_fen=previous_fen,
+    )
+
+    print(f"Predicted FEN: {fen}")
+    print(f"--- Debug Prediction Finished ---")
+    return fen
+
+
 def print_fen_comparison(
     board_name: str, fen: str, correct_fen: str, used_previous_fen: bool
 ):
@@ -705,8 +825,7 @@ def print_fen_comparison(
     print(
         board_name[:-4]
         + used_previous_fen_str
-        + " - Err:"
-        + str(n_dif)
+        + " - Err:" + str(n_dif)
         + " Acc:{:.2f}% FEN:".format((1 - (n_dif / 64)) * 100)
         + fen
         + "\n"
@@ -846,3 +965,131 @@ def check_validity_of_fen(fen: str) -> bool:
         return False
 
     return True
+
+
+import base64
+
+async def time_predict_board_stream(
+    board_path,
+    a1_pos,
+    obtain_piece_probs_for_all_64_squares,
+    previous_fen=None,
+):
+    """
+    Time the FEN-prediction process and yields elapsed times and images as a stream.
+    """
+    total_time = 0
+    yield "data: text:Starting prediction...\n\n"
+
+    # 1. Send original image
+    try:
+        with open(board_path, "rb") as image_file:
+            encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+            yield f"data: image:Original Image:data:image/jpeg;base64,{encoded_string}\n\n"
+    except Exception as e:
+        yield f"data: text:Could not load original image: {e}\n\n"
+
+    start = time.perf_counter()
+    detect_input_board(board_path)
+    elapsed_time = time.perf_counter() - start
+    total_time += elapsed_time
+    yield f"data: text:Elapsed time detecting the input board: {elapsed_time:.4f}s\n\n"
+
+    # 2. Send debug images
+    debug_image_patterns = {
+        "corner_points": "Corner Points",
+        "end_iteration2": "End Iteration 2"
+    }
+    debug_image_dir = os.path.join("data", "boards", "debug_steps")
+
+    for pattern, title in debug_image_patterns.items():
+        try:
+            list_of_files = glob.glob(os.path.join(debug_image_dir, f'*{pattern}*.jpg'))
+            if list_of_files:
+                latest_file = max(list_of_files, key=os.path.getctime)
+                with open(latest_file, "rb") as image_file:
+                    encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                    yield f"data: image:{title}:data:image/jpeg;base64,{encoded_string}\n\n"
+            else:
+                yield f"data: text:Debug image for '{title}' not found.\n\n"
+        except Exception as e:
+            yield f"data: text:Error loading debug image '{title}': {e}\n\n"
+
+    start = time.perf_counter()
+    pieces = obtain_individual_pieces(board_path)
+    elapsed_time = time.perf_counter() - start
+    total_time += elapsed_time
+    yield f"data: text:Elapsed time obtaining the individual pieces: {elapsed_time:.4f}s\n\n"
+
+    start = time.perf_counter()
+    probs_with_no_indices = obtain_piece_probs_for_all_64_squares(pieces)
+    elapsed_time = time.perf_counter() - start
+    total_time += elapsed_time
+    yield f"data: text:Elapsed time predicting probabilities: {elapsed_time:.4f}s\n\n"
+
+    start = time.perf_counter()
+    predictions = infer_chess_pieces(
+        probs_with_no_indices, a1_pos, previous_fen
+    )
+    elapsed_time = time.perf_counter() - start
+    total_time += elapsed_time
+    yield f"data: text:Elapsed time inferring chess pieces: {elapsed_time:.4f}s\n\n"
+
+    start = time.perf_counter()
+    board = list_to_board(predictions)
+    fen = board_to_fen(board)
+    elapsed_time = time.perf_counter() - start
+    total_time += elapsed_time
+    yield f"data: text:Elapsed time converting to FEN notation: {elapsed_time:.4f}s\n\n"
+
+    yield f"data: text:Total elapsed time: {total_time:.4f}s\n\n"
+    yield f"data: text:FEN: {fen}\n\n"
+    yield "data: text:FINISHED\n\n"
+
+
+async def debug_enabled_predictions_stream(
+    image_path: str,
+    a1_pos: str,
+    model_path: str,
+    img_size: int,
+    pre_input,
+    previous_fen: (str | None) = None,
+    engine: str = "onnx",
+):
+    """
+    Predicts the FEN for a single image, yielding debug information as a stream.
+    """
+    yield f"data: --- Running Debug Stream Prediction for {image_path} using {engine} engine ---\n\n"
+    
+    obtain_piece_probs_for_all_64_squares = None
+
+    if engine == "keras":
+        model = load_model(model_path)
+        def obtain_probs_keras(pieces: list[str]) -> list[list[float]]:
+            predictions = []
+            for piece in pieces:
+                piece_img = load_image(piece, img_size, pre_input)
+                predictions.append(model.predict(piece_img)[0])
+            return predictions
+        obtain_piece_probs_for_all_64_squares = obtain_probs_keras
+    elif engine == "onnx":
+        sess = onnxruntime.InferenceSession(model_path)
+        def obtain_probs_onnx(pieces: list[str]) -> list[list[float]]:
+            predictions = []
+            for piece in pieces:
+                piece_img = load_image(piece, img_size, pre_input)
+                predictions.append(
+                    sess.run(None, {sess.get_inputs()[0].name: piece_img})[0][0]
+                )
+            return predictions
+        obtain_piece_probs_for_all_64_squares = obtain_probs_onnx
+    else:
+        raise ValueError(f"Invalid engine specified: {engine}. Choose from 'keras', or 'onnx'.")
+
+    async for update in time_predict_board_stream(
+        image_path,
+        a1_pos,
+        obtain_piece_probs_for_all_64_squares,
+        previous_fen=previous_fen,
+    ):
+        yield update

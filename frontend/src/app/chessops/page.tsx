@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { TopBar } from "@/components/chessops/TopBar";
 import { CameraWall } from "@/components/chessops/CameraWall";
-import { DebugWorkbench } from "@/components/chessops/DebugWorkbench/PipelineTabs";
+import { ChessBoardVisualizer } from "@/components/chessops/ChessBoardVisualizer";
 import { AgentObservatory } from "@/components/chessops/Agents/AgentObservatory";
 import { ChatPanel } from "@/components/chessops/Chat/ChatPanel";
 import { CameraInitializer } from "@/components/chessops/CameraInitializer";
@@ -11,7 +11,10 @@ import { featureEnabled } from "@/lib/featureFlags";
 
 export default function ChessOpsPage() {
   useEffect(() => {
-    if (!featureEnabled("CHESSOPS")) console.warn("ChessOps flag disabled.");
+    if (!featureEnabled("CHESSOPS")) {
+      console.warn("ChessOps flag disabled.");
+      return;
+    }
   }, []);
 
   return (
@@ -33,7 +36,7 @@ export default function ChessOpsPage() {
         {/* Bottom row: Pipeline (75% left) + Chat (25% right) */}
         <div className="grid grid-cols-12 gap-3">
           <div className="col-span-9 overflow-auto">
-            <DebugWorkbench />
+            <ChessBoardVisualizer />
           </div>
           <div className="col-span-3 overflow-auto">
             <ChatPanel />

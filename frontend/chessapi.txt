@@ -1,0 +1,34 @@
+Chess2FEN API Documentation
+
+Available Endpoints:
+
+- GET /:
+  - Description: Returns this documentation and displays the current board.
+
+- GET /current_board:
+  - Description: Returns the current board state as an SVG image.
+  - Response: An SVG image of the chessboard.
+
+- GET /visualize_next_move:
+  - Description: Calculates the best move for the current board state and returns an SVG of the board with the move visualized as an arrow. This does not change the current board state.
+  - Response: An SVG image of the chessboard with the best move shown as a blue arrow.
+
+- GET /nextmove:
+  - Description: Calculates the best move for the current board state using Stockfish, updates the board state, and returns the move.
+  - Response (JSON):
+    - best_move: {uci, san, score}
+    - new_fen: The FEN of the board after the move.
+    - board_svg_with_move: An SVG of the new board with the move highlighted.
+
+- POST /predict:
+  - Description: Predicts the FEN from a chessboard image and sets it as the current board state.
+  - Request: Multipart form data with 'image' (the image file) and 'a1_pos' (e.g., "BL", "TR").
+  - Response (JSON):
+    - fen: The predicted FEN.
+    - board_ascii: An ASCII representation of the board.
+    - board_svg: An SVG image of the board.
+
+- POST /set_elo:
+  - Description: Sets the Elo rating for the Stockfish engine.
+  - Request (JSON): {"elo": }
+  - Response (JSON): A confirmation message.

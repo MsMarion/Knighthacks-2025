@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
-import { RefreshCw, Eye, EyeOff, ArrowRight, Brain } from "lucide-react";
-import { apiCurrentBoardSvg, apiVisualizeNextMove, apiNextMove } from "@/lib/api";
+import { Eye, Target, Brain, RefreshCw } from "lucide-react";
+import { PipelineEvent } from "@/components/chessops/Agents/types";
+import { apiCurrentBoardSvg } from "@/lib/api";
 
 function TimeDisplay({ timestamp }: { timestamp: number }) {
   const [timeString, setTimeString] = useState<string>("");
@@ -13,164 +14,162 @@ function TimeDisplay({ timestamp }: { timestamp: number }) {
   return <span>{timeString}</span>;
 }
 
-interface ChessBoardVisualizerProps {
-  className?: string;
-}
-
-export function ChessBoardVisualizer({ className }: ChessBoardVisualizerProps) {
+export function ChessBoardVisualizer({ className }: { className?: string }) {
+  const [events, setEvents] = useState<PipelineEvent[]>([]);
   const [boardSvg, setBoardSvg] = useState<string>("");
-  const [nextMoveSvg, setNextMoveSvg] = useState<string>("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showNextMove, setShowNextMove] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
-  const loadCurrentBoard = async () => {
-    setIsLoading(true);
-    setError(null);
+  const fetchCurrentBoard = async () => {
     try {
       const svg = await apiCurrentBoardSvg();
       setBoardSvg(svg);
       setLastUpdate(new Date());
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load board");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const loadNextMoveVisualization = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const svg = await apiVisualizeNextMove();
-      setNextMoveSvg(svg);
-      setShowNextMove(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load next move");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const executeNextMove = async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const result = await apiNextMove();
-      setBoardSvg(result.board_svg_with_move);
-      setLastUpdate(new Date());
-      setShowNextMove(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to execute move");
-    } finally {
-      setIsLoading(false);
+    } catch (error) {
+      console.error("Failed to fetch current board:", error);
+      setBoardSvg("");
     }
   };
 
   useEffect(() => {
-    loadCurrentBoard();
+    fetchCurrentBoard();
+
+    const ws = new WebSocket('ws://localhost:3001');
+    let buffer = '';
+
+    ws.onopen = () => {
+      console.log('WebSocket connected');
+    };
+
+    ws.onmessage = (event) => {
+      buffer += event.data;
+      let messages = buffer.split('\n\n');
+      buffer = messages.pop() || ''; // Keep the last (potentially incomplete) message in the buffer
+
+      for (const msg of messages) {
+        if (msg.startsWith('data: ')) {
+          const data = msg.substring(6);
+          if (data === 'FINISHED') {
+            fetchCurrentBoard(); // Refresh board after stream finishes
+            continue; // Continue processing other messages in the buffer
+          }
+
+          const [type, ...contentParts] = data.split(':');
+          const content = contentParts.join(':');
+
+          if (type === 'text') {
+            const event = { type: 'text' as const, content };
+            setEvents(prev => [...prev, event]);
+          } else if (type === 'image') {
+            const [title, imageData] = content.split(':data:image/jpeg;base64,');
+            const event = { type: 'image' as const, title, content: `data:image/jpeg;base64,${imageData}` };
+            setEvents(prev => [...prev, event]);
+          }
+        }
+      }
+    };
+
+    ws.onclose = () => {
+      console.log('WebSocket disconnected');
+    };
+
+    return () => {
+      ws.close();
+    };
   }, []);
+
+  const lastTwoImages = events.filter(e => e.type === 'image').slice(-3);
+  const fenOutput = events.filter(e => e.type === 'text' && e.content.startsWith('FEN:')).slice(-1)[0]?.content || 'No FEN available';
+  const logEvents = events.filter(e => e.type === 'text');
 
   return (
     <div className={`rounded-2xl bg-zinc-950 shadow-soft ring-1 ring-white/10 p-6 ${className || ""}`}>
       <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-3">
-          <Brain className="size-6 text-fuchsia-400" />
-          <h3 className="text-lg font-semibold">Chess Board</h3>
-        </div>
-        
-        <div className="flex items-center gap-2">
-          {lastUpdate && (
-            <span className="text-xs text-zinc-400">
-              Updated: <TimeDisplay timestamp={lastUpdate.getTime()} />
-            </span>
-          )}
-          <button
-            onClick={loadCurrentBoard}
-            disabled={isLoading}
-            className="rounded-lg p-2 hover:bg-zinc-800 disabled:opacity-50"
-            title="Refresh Board"
-          >
-            <RefreshCw className={`size-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
+        <h3 className="text-lg font-semibold">Chess Detection Pipeline</h3>
       </div>
 
-      {error && (
-        <div className="mb-4 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
-          <div className="text-sm text-red-300">{error}</div>
-        </div>
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
 
-      <div className="space-y-4">
-        {/* Current Board */}
-        <div className="bg-white rounded-lg p-4 min-h-[300px] flex items-center justify-center">
-          {boardSvg ? (
-            <div 
-              className="w-full h-full flex items-center justify-center"
-              dangerouslySetInnerHTML={{ __html: boardSvg }}
-            />
-          ) : (
-            <div className="text-zinc-400 text-center">
-              {isLoading ? "Loading board..." : "No board data available"}
+        {/* Debug Images */}
+        {lastTwoImages.map((event, idx) => (
+          <div key={idx} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+            <div className="flex items-center gap-2 mb-4">
+              <Eye className="size-5 text-blue-400" />
+              <h4 className="text-lg font-semibold text-white">{event.title || `Debug Step ${idx + 1}`}</h4>
             </div>
-          )}
-        </div>
-
-        {/* Controls */}
-        <div className="flex gap-3">
-          <button
-            onClick={loadNextMoveVisualization}
-            disabled={isLoading}
-            className="flex-1 rounded-xl bg-fuchsia-500/20 px-4 py-2 text-sm font-medium hover:bg-fuchsia-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            {isLoading ? (
-              <>
-                <RefreshCw className="size-4 animate-spin" />
-                Loading...
-              </>
-            ) : (
-              <>
-                <Eye className="size-4" />
-                Show Next Move
-              </>
-            )}
-          </button>
-          
-          <button
-            onClick={executeNextMove}
-            disabled={isLoading}
-            className="flex-1 rounded-xl bg-emerald-500/20 px-4 py-2 text-sm font-medium hover:bg-emerald-500/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-          >
-            <ArrowRight className="size-4" />
-            Execute Move
-          </button>
-        </div>
-
-        {/* Next Move Visualization */}
-        {showNextMove && nextMoveSvg && (
-          <div className="space-y-3">
-            <div className="flex items-center gap-2">
-              <Eye className="size-4 text-fuchsia-400" />
-              <span className="text-sm font-medium text-zinc-300">Next Move Preview</span>
-              <button
-                onClick={() => setShowNextMove(false)}
-                className="ml-auto rounded-lg p-1 hover:bg-zinc-800"
-                title="Hide preview"
-              >
-                <EyeOff className="size-4" />
-              </button>
-            </div>
-            
-            <div className="bg-white rounded-lg p-4">
-              <div 
-                className="w-full h-full flex items-center justify-center"
-                dangerouslySetInnerHTML={{ __html: nextMoveSvg }}
-              />
+            <div className="relative">
+              <img src={event.content} alt={event.title} className="w-full h-64 object-contain rounded-lg border border-zinc-600/30" />
+              <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
+                {new Date().toLocaleTimeString()}
+              </div>
             </div>
           </div>
-        )}
+        ))}
+
+
+        {/* Current Board */}
+        <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+          <div className="flex items-center gap-2 mb-4">
+            <Brain className="size-5 text-fuchsia-400" />
+            <h4 className="text-lg font-semibold text-white">Current Board</h4>
+            {lastUpdate && (
+              <span className="text-xs text-zinc-400 ml-auto">
+                Updated: <TimeDisplay timestamp={lastUpdate.getTime()} />
+              </span>
+            )}
+            <button
+              onClick={fetchCurrentBoard}
+              className="rounded-lg p-2 hover:bg-zinc-800 disabled:opacity-50"
+              title="Refresh Board"
+            >
+              <RefreshCw className={`size-4`} />
+            </button>
+          </div>
+          <div className="bg-zinc-950 rounded-lg p-4 flex items-center justify-center min-h-[256px] border border-zinc-600/30">
+            {boardSvg ? (
+              <div 
+                className="w-full"
+                dangerouslySetInnerHTML={{ __html: boardSvg }}
+              />
+            ) : (
+              <div className="text-center text-zinc-500 py-16">
+                <Eye className="size-12 mx-auto mb-3 text-zinc-600" />
+                <div className="text-sm">No board state available</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        
+
+        {/* Current Board (FEN) */}
+        {/*
+        <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+          <div className="flex items-center gap-2 mb-4">
+            <Target className="size-5 text-green-400" />
+            <h4 className="text-lg font-semibold text-white">Current Board (FEN)</h4>
+          </div>
+          <div className="relative">
+            <div className="w-full h-64 bg-zinc-800/30 rounded-lg border border-zinc-600/30 flex items-center justify-center p-4">
+              <p className="font-mono text-sm text-zinc-200 whitespace-pre-wrap">
+                {fenOutput}
+              </p>
+            </div>
+            <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
+              Live
+            </div>
+          </div>
+        </div>
+        */}
+      </div>
+
+{/* Text Events Log */}
+      <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50 mt-6">
+        <h4 className="text-lg font-semibold text-white mb-4">Pipeline Log</h4>
+        <div className="space-y-2 max-h-60 overflow-y-auto">
+          {logEvents.map((event, index) => (
+            <p key={index} className="font-mono text-xs text-zinc-400 whitespace-pre-wrap">{event.content}</p>
+          ))}
+        </div>
       </div>
     </div>
   );

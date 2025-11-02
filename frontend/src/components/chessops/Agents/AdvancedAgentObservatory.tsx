@@ -2,6 +2,10 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 
+import { PipelineTimeline } from "@/components/chessops/DebugWorkbench/PipelineTimeline";
+
+import { PipelineEvent } from "@/components/chessops/Agents/types";
+
 function TimeDisplay({ timestamp }: { timestamp: number }) {
   const [timeString, setTimeString] = useState<string>("");
   
@@ -224,45 +228,11 @@ export function AdvancedAgentObservatory() {
   const websocketRef = useRef<WebSocket | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Fetch debug images from debug_steps folder
-  const fetchDebugImages = async () => {
-    try {
-      const response = await fetch('/api/debug-images');
-      if (response.ok) {
-        const data = await response.json();
-        setDebugImages(data.images || []);
-      }
-    } catch (error) {
-      console.error('Failed to fetch debug images:', error);
-    }
-  };
+  const [pipelineEvents, setPipelineEvents] = useState<PipelineEvent[]>([]);
 
-  // Fetch current board state
-  const fetchCurrentBoard = async () => {
-    try {
-      const response = await fetch('http://localhost:8000/current_board');
-      if (response.ok) {
-        const svg = await response.text();
-        setCurrentBoard(svg);
-      }
-    } catch (error) {
-      console.error('Failed to fetch current board:', error);
-    }
+  const handlePipelineEvent = (event: PipelineEvent) => {
+    setPipelineEvents(prev => [...prev, event]);
   };
-
-  // Fetch initial data and set up polling
-  useEffect(() => {
-    fetchDebugImages();
-    fetchCurrentBoard();
-    
-    // Poll for updates every 2 seconds
-    const pollInterval = setInterval(() => {
-      fetchDebugImages();
-      fetchCurrentBoard();
-    }, 2000);
-    
-    return () => clearInterval(pollInterval);
-  }, []);
 
   // WebSocket connection for real-time agent updates
   useEffect(() => {
@@ -1422,64 +1392,7 @@ export function AdvancedAgentObservatory() {
           </motion.div>
         )}
 
-        {view === "timeline" && (
-          <motion.div
-            key="timeline"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="space-y-4"
-          >
-            {messages.length === 0 ? (
-              <div className="text-center py-12 text-zinc-400">
-                <MessageSquare className="size-12 mx-auto mb-4 text-zinc-600" />
-                <div className="text-lg font-medium mb-2">No Chess AI Activity</div>
-                <div className="text-sm text-zinc-500">Start the AI system to see agent communications</div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {messages.slice(-10).reverse().map((message) => {
-                  const fromAgent = agents.find(a => a.id === message.from);
-                  const toAgent = agents.find(a => a.id === message.to);
-                  
-                  return (
-                    <motion.div
-                      key={message.id}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      className="flex items-start gap-4 p-4 bg-gradient-to-r from-zinc-900/50 to-zinc-950/50 rounded-xl border border-zinc-700/30 hover:border-zinc-600/50 transition-all duration-300"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className={`w-3 h-3 rounded-full ${
-                          message.type === 'thought' ? 'bg-blue-400' :
-                          message.type === 'action' ? 'bg-green-400' :
-                          message.type === 'query' ? 'bg-orange-400' : 'bg-purple-400'
-                        }`} />
-                        <div className="text-sm font-medium text-zinc-300">
-                          {fromAgent?.name.split(' ')[0]} → {toAgent?.name.split(' ')[0]}
-                        </div>
-                      </div>
-                      <div className="flex-1">
-                        <div className="text-sm text-zinc-200 leading-relaxed mb-2">{message.content}</div>
-                        <div className="flex items-center gap-4 text-xs text-zinc-500">
-                          <span>
-                            <TimeDisplay timestamp={message.timestamp.getTime()} />
-                          </span>
-                          <span>
-                            Confidence: {Math.round(message.confidence * 100)}%
-                          </span>
-                          <span className="capitalize">
-                            {message.type}
-                          </span>
-                        </div>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
-        )}
+        {view === "timeline" && <PipelineTimeline onEvent={handlePipelineEvent} />}
 
         {view === "pipeline" && (
           <motion.div
@@ -1491,95 +1404,53 @@ export function AdvancedAgentObservatory() {
           >
             <div className="text-center mb-6">
               <h3 className="text-lg font-semibold text-white mb-2">Chess Detection Pipeline</h3>
-              <p className="text-sm text-zinc-400">Live processing steps and current board state</p>
+              <p className="text-sm text-zinc-400">Live processing steps from the stream</p>
             </div>
 
-            {/* Simple 3-image layout */}
+            {/* Display latest debug images and current board */}
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-              {/* Debug Image 1 */}
-              <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
-                <div className="flex items-center gap-2 mb-4">
-                  <Eye className="size-5 text-blue-400" />
-                  <h4 className="text-lg font-semibold text-white">Debug Step 1</h4>
-                </div>
-                
-                {debugImages.length >= 1 ? (
+              {/* Debug Images */}
+              {pipelineEvents.filter(e => e.type === 'image').slice(-2).map((event, idx) => (
+                <div key={idx} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+                  <div className="flex items-center gap-2 mb-4">
+                    <Eye className="size-5 text-blue-400" />
+                    <h4 className="text-lg font-semibold text-white">{event.title || `Debug Step ${idx + 1}`}</h4>
+                  </div>
                   <div className="relative">
-                    <img
-                      src={`/api/debug-image?path=${encodeURIComponent(debugImages[debugImages.length - 2])}`}
-                      alt="Debug step 1"
-                      className="w-full h-64 object-cover rounded-lg border border-zinc-600/30"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzMzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
-                      }}
-                    />
+                    <img src={event.content} alt={event.title} className="w-full h-64 object-contain rounded-lg border border-zinc-600/30" />
                     <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
                       {new Date().toLocaleTimeString()}
                     </div>
                   </div>
-                ) : (
-                  <div className="text-center py-16 text-zinc-500">
-                    <Eye className="size-12 mx-auto mb-3 text-zinc-600" />
-                    <div className="text-sm">No debug image available</div>
-                  </div>
-                )}
-              </div>
-
-              {/* Debug Image 2 */}
-              <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
-                <div className="flex items-center gap-2 mb-4">
-                  <Eye className="size-5 text-blue-400" />
-                  <h4 className="text-lg font-semibold text-white">Debug Step 2</h4>
                 </div>
-                
-                {debugImages.length >= 2 ? (
-                  <div className="relative">
-                    <img
-                      src={`/api/debug-image?path=${encodeURIComponent(debugImages[debugImages.length - 1])}`}
-                      alt="Debug step 2"
-                      className="w-full h-64 object-cover rounded-lg border border-zinc-600/30"
-                      onError={(e) => {
-                        const target = e.target as HTMLImageElement;
-                        target.src = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjAwIiBoZWlnaHQ9IjIwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSIjMzMzIi8+PHRleHQgeD0iNTAlIiB5PSI1MCUiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSIxNCIgZmlsbD0iIzk5OSIgdGV4dC1hbmNob3I9Im1pZGRsZSIgZHk9Ii4zZW0iPkltYWdlIG5vdCBmb3VuZDwvdGV4dD48L3N2Zz4=';
-                      }}
-                    />
-                    <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
-                      {new Date().toLocaleTimeString()}
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center py-16 text-zinc-500">
-                    <Eye className="size-12 mx-auto mb-3 text-zinc-600" />
-                    <div className="text-sm">No debug image available</div>
-                  </div>
-                )}
-              </div>
+              ))}
 
-              {/* Current Board */}
+              {/* Current Board (FEN) */}
               <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
                 <div className="flex items-center gap-2 mb-4">
                   <Target className="size-5 text-green-400" />
-                  <h4 className="text-lg font-semibold text-white">Current Board</h4>
+                  <h4 className="text-lg font-semibold text-white">Current Board (FEN)</h4>
                 </div>
-                
-                {currentBoard ? (
-                  <div className="relative">
-                    <div 
-                      className="w-full h-64 bg-zinc-800/30 rounded-lg border border-zinc-600/30 flex items-center justify-center"
-                      dangerouslySetInnerHTML={{ __html: currentBoard }}
-                    />
-                    <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
-                      Live
-                    </div>
+                <div className="relative">
+                  <div className="w-full h-64 bg-zinc-800/30 rounded-lg border border-zinc-600/30 flex items-center justify-center p-4">
+                    <p className="font-mono text-sm text-zinc-200 whitespace-pre-wrap">
+                      {pipelineEvents.filter(e => e.type === 'text' && e.content.startsWith('FEN:')).slice(-1)[0]?.content || 'No FEN available'}
+                    </p>
                   </div>
-                ) : (
-                  <div className="text-center py-16 text-zinc-500">
-                    <Target className="size-12 mx-auto mb-3 text-zinc-600" />
-                    <div className="text-sm">No board data available</div>
-                    <div className="text-xs text-zinc-600 mt-1">Connect to chess detection service</div>
+                  <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
+                    Live
                   </div>
-                )}
+                </div>
+              </div>
+            </div>
+
+            {/* Text Events Log */}
+            <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
+              <h4 className="text-lg font-semibold text-white mb-4">Pipeline Log</h4>
+              <div className="space-y-2 max-h-60 overflow-y-auto">
+                {pipelineEvents.filter(e => e.type === 'text').map((event, index) => (
+                  <p key={index} className="font-mono text-xs text-zinc-400 whitespace-pre-wrap">{event.content}</p>
+                ))}
               </div>
             </div>
           </motion.div>

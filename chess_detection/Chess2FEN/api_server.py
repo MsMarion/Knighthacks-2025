@@ -3,13 +3,14 @@ import shutil
 import uuid
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException
 from pydantic import BaseModel
-from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 import uvicorn
 import chess
 import chess.svg
+from fastapi.middleware.cors import CORSMiddleware
 
 # Assuming the server is run from the Chess2FEN directory
-from lc2fen.predict_board import predict_board_onnx
+from lc2fen.predict_board import predict_board_onnx, debug_enabled_predictions, debug_enabled_predictions_stream
 from make_best_move import best_move_from_fen
 from keras.applications.mobilenet_v2 import preprocess_input as prein_mobilenet
 
@@ -19,6 +20,18 @@ IMG_SIZE_ONNX = 299
 PRE_INPUT_ONNX = prein_mobilenet
 STOCKFISH_PATH = "stockfish_PC/stockfish-windows-x86-64-avx2/stockfish/stockfish-windows-x86-64-avx2.exe"
 TEMP_DIR = "api_temp"
+
+origins = [
+    "http://localhost:3000",
+    "http://localhost",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8100",
+    "null",
+]
+
+
+
+
 
 # --- Stateful Server Data ---
 class ServerState:
@@ -30,6 +43,13 @@ server_state = ServerState()
 
 app = FastAPI()
 
+app.add_middleware(
+     CORSMiddleware,
+     allow_origins=origins,
+      allow_credentials=True,
+     allow_methods=["*"],
+       allow_headers=["*"],
+    )
 class EloRequest(BaseModel):
     elo: int
 
@@ -66,6 +86,11 @@ Available Endpoints:
     - board_ascii: An ASCII representation of the board.
     - board_svg: An SVG image of the board.
 
+- POST /predict-stream:
+  - Description: Predicts the FEN from a chessboard image and streams the real-time debug and timing information to the client using Server-Sent Events.
+  - Request: Multipart form data with 'image' (the image file) and 'a1_pos' (e.g., "BL", "TR").
+  - Response: A stream of text events (`text/event-stream`). Each event is a line of the debug output.
+
 - POST /set_elo:
   - Description: Sets the Elo rating for the Stockfish engine.
   - Request (JSON): {"elo": <integer between 1320 and 3190>}
@@ -85,10 +110,11 @@ Available Endpoints:
         </head>
         <body>
             <h1>Chess2FEN API</h1>
-            <h2>Current Board</h2>
-            <div>{svg}</div>
             <h2>API Documentation</h2>
             <pre>{docs}</pre>
+            <h2>Current Board</h2>
+            <div>{svg}</div>
+            
         </body>
     </html>
     """
@@ -118,13 +144,14 @@ async def predict_position(
         shutil.copyfileobj(image.file, buffer)
 
     try:
-        fen, _ = predict_board_onnx(
-            MODEL_PATH_ONNX,
-            IMG_SIZE_ONNX,
-            PRE_INPUT_ONNX,
-            path=temp_image_path,
+        fen = debug_enabled_predictions(
+            image_path=temp_image_path,
             a1_pos=a1_pos.upper(),
+            model_path=MODEL_PATH_ONNX,
+            img_size=IMG_SIZE_ONNX,
+            pre_input=PRE_INPUT_ONNX,
             previous_fen=None,
+            engine="onnx",
         )
 
         if not fen:
@@ -149,6 +176,51 @@ async def predict_position(
     finally:
         if os.path.exists(temp_image_path):
             os.remove(temp_image_path)
+
+
+@app.post("/predict-stream")
+async def predict_position_stream(
+    image: UploadFile = File(...),
+    a1_pos: str = Form(...),
+):
+    """
+    Predicts the FEN of a chessboard image and streams the debug output.
+    """
+    if a1_pos.upper() not in ["BL", "BR", "TL", "TR"]:
+        raise HTTPException(status_code=400, detail="Invalid a1_pos value. Must be one of BL, BR, TL, TR.")
+
+    ext = os.path.splitext(image.filename)[1]
+    temp_image_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}{ext}")
+    with open(temp_image_path, "wb") as buffer:
+        shutil.copyfileobj(image.file, buffer)
+
+    async def generator():
+        final_fen = None
+        try:
+            async for update in debug_enabled_predictions_stream(
+                image_path=temp_image_path,
+                a1_pos=a1_pos.upper(),
+                model_path=MODEL_PATH_ONNX,
+                img_size=IMG_SIZE_ONNX,
+                pre_input=PRE_INPUT_ONNX,
+                engine="onnx",
+            ):
+                if update.startswith("data: text:FEN: "):
+                    final_fen = update.replace("data: text:FEN: ", "").strip()
+                yield update
+        finally:
+            if final_fen:
+                try:
+                    board = chess.Board(final_fen)
+                    server_state.current_fen = board.fen()
+                    print(f"Server state updated to FEN: {server_state.current_fen}")
+                except ValueError:
+                    print(f"Warning: Stream produced an invalid FEN, server state not updated: {final_fen}")
+            
+            if os.path.exists(temp_image_path):
+                os.remove(temp_image_path)
+
+    return StreamingResponse(generator(), media_type="text/event-stream")
 
 @app.get("/nextmove")
 async def get_next_move():
@@ -202,6 +274,18 @@ async def get_current_board():
         return svg
     except ValueError:
         raise HTTPException(status_code=500, detail="Current FEN is invalid.")
+    
+@app.get("/debug_images", response_class=HTMLResponse)
+async def get_current_board():
+    """
+    Returns the current board state as an SVG image.
+    """
+    try:
+        board = chess.Board(server_state.current_fen)
+        svg = chess.svg.board(board=board, size=200)
+        return svg
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Current FEN is invalid.")
 
 @app.get("/visualize_next_move", response_class=HTMLResponse)
 async def visualize_next_move():
@@ -232,4 +316,4 @@ async def visualize_next_move():
         raise HTTPException(status_code=500, detail=f"An error occurred: {str(e)}")
 
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run("api_server:app", host="127.0.0.1", port=8100, reload=True)

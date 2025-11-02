@@ -1,23 +1,12 @@
-Enter the a1 square position (BL, BR, TL, TR): BR
-Enter the previous FEN (optional, press Enter to skip): 
+--- Running Debug Stream Prediction for api_temp\c861c25d-6d66-481e-8683-a39156fb45d4.jpg using onnx engine ---
+Starting prediction...
+Elapsed time detecting the input board: 2.8540s
+Elapsed time obtaining the individual pieces: 0.0795s
+Elapsed time predicting probabilities: 5.8286s
+Elapsed time inferring chess pieces: 0.0008s
+Elapsed time converting to FEN notation: 0.0000s
+Total elapsed time: 8.7629s
+FEN: r5k1/1pq2pp1/2p2n2/1PNn4/2RN2b1/4r1P1/4PP2/2R3BK
 
-Processing...
-[ WARN:0@23.169] global loadsave.cpp:248 cv::findDecoder imread_('D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\Test Data  est2.JPG'): can't open/read file: check file path/integrity
-Traceback (most recent call last):
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\test_lc2fen_2.py", line 48, in <module>
-    main()
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\test_lc2fen_2.py", line 35, in main
-    fen, _ = predict_board_onnx(
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\predict_board.py", line 216, in predict_board_onnx
-    return predict_board(
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\predict_board.py", line 422, in predict_board
-    board_corners = detect_input_board(board_path, board_corners)
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\predict_board.py", line 579, in detect_input_board
-    image_object = detect(
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\detectboard\detect_board.py", line 176, in detect
-    __layer(image, i)
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\detectboard\detect_board.py", line 123, in __layer
-    lines = slid(img["main"])
-  File "D:\Hackathons\Knighthacks\knighthacks-25\chess_detection\Chess2FEN\lc2fen\detectboard\image_object.py", line 66, in __getitem__
-    return self.images[-1][attr]
-IndexError: list index out of range
+--- End of Stream ---
+Stream finished.

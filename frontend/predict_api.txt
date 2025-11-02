@@ -1,0 +1,48 @@
+ ---
+
+  Endpoint: /predict-stream
+
+   - Method: POST
+   - URL: http://127.0.0.1:8100/predict-stream (assuming your server is running locally on port 8100)
+   - Description: This endpoint processes an uploaded chessboard image to predict its FEN (Forsyth-Edwards Notation) and streams   
+     real-time debug information, processing times, and visual debug images back to the client using Server-Sent Events (SSE). Upon
+     successful completion of the stream, the server's internal current_fen state is updated with the predicted FEN.
+
+   - Request Format: multipart/form-data
+       - Fields:
+           - image (File): The image file of the chessboard to be analyzed.
+           - a1_pos (String): The position of the a1 square on the chessboard image. Valid values are "BL" (Bottom-Left), "BR"        
+             (Bottom-Right), "TL" (Top-Left), or "TR" (Top-Right).
+
+   - Response Format: text/event-stream (Server-Sent Events)
+       - The server will send a continuous stream of text events. Each event is terminated by two newline characters (\n\n).
+       - Each event follows the format: data: <type>:<content>\n\n
+       - `type` Field: Indicates the nature of the content.
+           - text: The content is a plain text message, typically a progress update, elapsed time, or the final FEN string.
+           - image: The content is a Base64-encoded image, representing a debug visualization.
+       - `content` Field (for `type: text`):
+           - A string containing a progress message, timing information (e.g., Elapsed time detecting the input board: 2.8540s), or the
+             final FEN (e.g., FEN: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1).
+           - The final message in the stream will be FINISHED.
+       - `content` Field (for `type: image`):
+           - Formatted as <Image Title>:data:image/jpeg;base64,<Base64 Encoded Image Data>.
+           - Example: Original Image:data:image/jpeg;base64,/9j/4AAQSkZJRgABAQE...
+           - The client should parse this to extract the title and the Base64 data URI to display the image.
+
+   - Behavior:
+       1. Upon receiving a POST request, the server saves the uploaded image temporarily.
+       2. It then begins the chessboard analysis process.
+       3. As each step of the analysis completes (e.g., board detection, piece extraction, prediction), the server sends a text event 
+          with timing information.
+       4. Specific debug images (original image, corner points, end iteration) are Base64-encoded and sent as image events.
+       5. The stream concludes with the final predicted FEN and a FINISHED message.
+       6. After the stream is fully sent, the server updates its internal server_state.current_fen with the predicted FEN.
+       7. The temporary image file is deleted.
+
+   - Client-Side Consumption (Conceptual):
+       - A client would typically use the fetch API with response.body.getReader() to consume this stream.
+       - It needs to buffer incoming data and parse complete SSE messages (delimited by \n\n).
+       - Messages with type: text can be displayed as plain text.
+       - Messages with type: image can be used to create <img> elements with their src attribute set to the provided data URI.        
+
+  ---

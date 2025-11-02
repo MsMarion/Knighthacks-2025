@@ -1,8 +1,8 @@
-const BASE = process.env.NEXT_PUBLIC_CHESS_API_URL || "http://127.0.0.1:8000";
+const BASE = process.env.NEXT_PUBLIC_CHESS_API_URL || "http://127.0.0.1:8100";
 
 export async function apiCurrentBoardSvg(): Promise<string> {
   const res = await fetch(`${BASE}/current_board`, { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to fetch board SVG");
+  if (!res.ok) {throw new Error("Failed to fetch board SVG");}
   return res.text();
 }
 
