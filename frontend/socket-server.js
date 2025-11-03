@@ -33,7 +33,16 @@ const server = http.createServer((req, res) => {
       body += chunk.toString();
     });
     req.on('end', () => {
-      wss.broadcast(body);
+      try {
+        const parsedBody = JSON.parse(body);
+        if (parsedBody.type === 'clear') {
+          wss.broadcast(JSON.stringify(parsedBody)); // Broadcast the clear message as JSON
+        } else {
+          wss.broadcast(body); // Broadcast other messages as is
+        }
+      } catch (e) {
+        wss.broadcast(body); // If not JSON, broadcast as is (e.g., SSE chunks)
+      }
       res.writeHead(200, { 'Content-Type': 'text/plain' });
       res.end('OK');
     });

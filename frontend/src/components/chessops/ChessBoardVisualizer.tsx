@@ -41,7 +41,18 @@ export function ChessBoardVisualizer({ className }: { className?: string }) {
     };
 
     ws.onmessage = (event) => {
-      buffer += event.data;
+      const messageData = event.data;
+      try {
+        const parsedMessage = JSON.parse(messageData);
+        if (parsedMessage.type === 'clear') {
+          setEvents([]); // Clear all previous events
+          return;
+        }
+      } catch (e) {
+        // Not a JSON message, proceed with stream processing
+      }
+
+      buffer += messageData;
       let messages = buffer.split('\n\n');
       buffer = messages.pop() || ''; // Keep the last (potentially incomplete) message in the buffer
 
