@@ -17,17 +17,31 @@ function TimeDisplay({ timestamp }: { timestamp: number }) {
 export function ChessBoardVisualizer({ className }: { className?: string }) {
   const [logEvents, setLogEvents] = useState<PipelineEvent[]>([]);
   const [imageEvents, setImageEvents] = useState<PipelineEvent[]>(Array(3).fill({ type: 'image', title: 'Waiting for image...', content: '' }));
-  const [boardSvg, setBoardSvg] = useState<string>("");
+  const [boardImageUrl, setBoardImageUrl] = useState<string>("");
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
 
   const fetchCurrentBoard = async () => {
     try {
       const svg = await apiCurrentBoardSvg();
-      setBoardSvg(svg);
+      const img = new Image();
+      const blob = new Blob([svg], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        const scaleFactor = 2; // Increase resolution by 2x
+        canvas.width = img.width * scaleFactor;
+        canvas.height = img.height * scaleFactor;
+        const ctx = canvas.getContext('2d');
+        ctx?.drawImage(img, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/png');
+        setBoardImageUrl(dataUrl);
+        URL.revokeObjectURL(url);
+      };
+      img.src = url;
       setLastUpdate(new Date());
     } catch (error) {
       console.error("Failed to fetch current board:", error);
-      setBoardSvg("");
+      setBoardImageUrl("");
     }
   };
 
@@ -136,11 +150,8 @@ export function ChessBoardVisualizer({ className }: { className?: string }) {
             </button>
           </div>
           <div className="bg-zinc-950 rounded-lg p-4 flex items-center justify-center min-h-[256px] border border-zinc-600/30">
-            {boardSvg ? (
-              <div 
-                className="w-full"
-                dangerouslySetInnerHTML={{ __html: boardSvg }}
-              />
+            {boardImageUrl ? (
+              <img src={boardImageUrl} alt="Current Board" className="w-full h-full object-contain" />
             ) : (
               <div className="text-center text-zinc-500 py-16">
                 <Eye className="size-12 mx-auto mb-3 text-zinc-600" />
