@@ -115,13 +115,13 @@ export function ChessBoardVisualizer({ className }: { className?: string }) {
         {/* Debug Images */}
         <div className="col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
           {imageEvents.map((event, idx) => (
-            <div key={idx} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
-              <div className="flex items-center gap-2 mb-4">
+            <div key={idx} className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50 h-80 grid place-items-center">
+               <div className="flex items-center gap-2 mb-4">
                 <Eye className="size-5 text-blue-400" />
                 <h4 className="text-lg font-semibold text-white">{event.title || `Debug Step ${idx + 1}`}</h4>
               </div>
               <div className="relative">
-                <img src={event.content} alt={event.title} className="w-full h-64 object-contain rounded-lg border border-zinc-600/30" />
+                <img src={event.content} alt={event.title} className="w-full h-full object-contain rounded-lg border border-zinc-600/30" />
                 <div className="absolute top-2 right-2 bg-zinc-900/80 text-white text-xs px-2 py-1 rounded">
                   {new Date().toLocaleTimeString()}
                 </div>
@@ -129,7 +129,6 @@ export function ChessBoardVisualizer({ className }: { className?: string }) {
             </div>
           ))}
         </div>
-
 
         {/* Current Board */}
         <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-700/50">
