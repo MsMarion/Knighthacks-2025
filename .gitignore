@@ -216,8 +216,8 @@ frontend/gitingest.ps1
 frontend/project_dump.txt
 
 # Frontend specific
-frontend/src/src/
-frontend/src/app/api/
+!frontend/src/src/
+!frontend/src/app/api/
 # Allow lib directory
 !frontend/src/lib/
 
